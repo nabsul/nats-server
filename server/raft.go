@@ -70,6 +70,7 @@ type RaftNode interface {
 	LeadChangeC() <-chan bool
 	QuitC() <-chan struct{}
 	Created() time.Time
+	Overloaded() bool
 	Stop()
 	Delete()
 	Wipe()
@@ -135,6 +136,7 @@ type raft struct {
 	werr  error       // Last write error
 
 	state    atomic.Int32 // RaftState
+	overload atomic.Bool  // Is the upper layer congested?
 	hh       hash.Hash64  // Highwayhash, used for snapshots
 	snapfile string       // Snapshot filename
 
@@ -241,6 +243,7 @@ var (
 	hbInterval         = hbIntervalDefault
 	lostQuorumInterval = lostQuorumIntervalDefault
 	lostQuorumCheck    = lostQuorumCheckIntervalDefault
+	overloadThreshold  = 8192
 )
 
 type RaftConfig struct {
@@ -467,7 +470,7 @@ func (s *Server) startRaftNode(accName string, cfg *RaftConfig, labels pprofLabe
 	}
 
 	// Send nil entry to signal the upper layers we are done doing replay/restore.
-	n.apply.push(nil)
+	n.pushToApply(nil)
 
 	// Make sure to track ourselves.
 	n.peers[n.id] = &lps{time.Now().UnixNano(), 0, true}
@@ -917,6 +920,7 @@ func (n *raft) Applied(index uint64) (entries uint64, bytes uint64) {
 	// Ignore if already applied.
 	if index > n.applied {
 		n.applied = index
+		n.updateOverloadState()
 	}
 
 	// Calculate the number of entries and estimate the byte size that
@@ -1157,7 +1161,7 @@ func (n *raft) setupLastSnapshot() {
 	n.pterm = snap.lastTerm
 	n.commit = snap.lastIndex
 	n.applied = snap.lastIndex
-	n.apply.push(newCommittedEntry(n.commit, []*Entry{{EntrySnapshot, snap.data}}))
+	n.pushToApply(newCommittedEntry(n.commit, []*Entry{{EntrySnapshot, snap.data}}))
 	if _, err := n.wal.Compact(snap.lastIndex + 1); err != nil {
 		n.setWriteErrLocked(err)
 	}
@@ -1320,6 +1324,24 @@ func (n *raft) Healthy() bool {
 	n.Lock()
 	defer n.Unlock()
 	return n.isCurrent(true)
+}
+
+func (n *raft) Overloaded() bool {
+	if n == nil {
+		return false
+	}
+	return n.overload.Load()
+}
+
+// Pushes to the apply queue and updates the overloaded state. Lock must be held.
+func (n *raft) pushToApply(ce *CommittedEntry) {
+	n.apply.push(ce)
+	n.updateOverloadState()
+}
+
+// Updates the overloaded state. Lock must be held.
+func (n *raft) updateOverloadState() {
+	n.overload.Store(n.apply.len() >= overloadThreshold || n.commit-n.applied >= uint64(overloadThreshold))
 }
 
 // HadPreviousLeader indicates if this group ever had a leader.
@@ -2757,7 +2779,7 @@ func (n *raft) applyCommit(index uint64) error {
 		if fpae {
 			delete(n.pae, index)
 		}
-		n.apply.push(newCommittedEntry(index, committed))
+		n.pushToApply(newCommittedEntry(index, committed))
 	} else {
 		// If we processed inline update our applied index.
 		n.applied = index
@@ -2939,6 +2961,13 @@ func (n *raft) runAsCandidate() {
 // handleAppendEntry handles an append entry from the wire. This function
 // is an internal callback from the "asubj" append entry subscription.
 func (n *raft) handleAppendEntry(sub *subscription, c *client, _ *Account, subject, reply string, msg []byte) {
+	// If we are overwhelmed, i.e. the upper layer is not applying entries
+	// fast enough and our apply queue is building up, start to drop new
+	// append entries instead.
+	if n.Overloaded() {
+		return
+	}
+
 	msg = copyBytes(msg)
 	if ae, err := n.decodeAppendEntry(msg, sub, reply); err == nil {
 		// Push to the new entry channel. From here one of the worker
@@ -3258,7 +3287,7 @@ func (n *raft) processAppendEntry(ae *appendEntry, sub *subscription) {
 			}
 
 			// Now send snapshot to upper levels. Only send the snapshot, not the peerstate entry.
-			n.apply.push(newCommittedEntry(n.commit, ae.entries[:1]))
+			n.pushToApply(newCommittedEntry(n.commit, ae.entries[:1]))
 			n.Unlock()
 			return
 
