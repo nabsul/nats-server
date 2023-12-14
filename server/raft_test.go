@@ -299,8 +299,8 @@ func TestNRGDetectOverload(t *testing.T) {
 	defer func() {
 		overloadThreshold = origOverloadThreshold
 	}()
-	overloadThreshold = 8
 	iterations := 32
+	overloadThreshold = (iterations - 2) * 8
 
 	c := createJetStreamClusterExplicit(t, "R3S", 3)
 	defer c.shutdown()
