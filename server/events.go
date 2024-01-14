@@ -40,6 +40,7 @@ import (
 const (
 	accLookupReqTokens = 6
 	accLookupReqSubj   = "$SYS.REQ.ACCOUNT.%s.CLAIMS.LOOKUP"
+	usrLookupReqSubj   = "$SYS.REQ.USER.%s.CLAIMS.LOOKUP"
 	accPackReqSubj     = "$SYS.REQ.CLAIMS.PACK"
 	accListReqSubj     = "$SYS.REQ.CLAIMS.LIST"
 	accClaimsReqSubj   = "$SYS.REQ.CLAIMS.UPDATE"
