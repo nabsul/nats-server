@@ -2986,6 +2986,7 @@ func (s *Server) createClientInProcess(conn net.Conn) *client {
 }
 
 func (s *Server) createClientEx(conn net.Conn, inProcess bool) *client {
+	s.Noticef("Client connection created with in process = %b", inProcess)
 	// Snapshot server options.
 	opts := s.getOpts()
 
