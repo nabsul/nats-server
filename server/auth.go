@@ -718,6 +718,10 @@ func (s *Server) processClientOrLeafAuthentication(c *client, opts *Options) (au
 
 	// Check if we have trustedKeys defined in the server. If so we require a user jwt.
 	if s.trustedKeys != nil {
+		s.mu.Unlock()
+		c.opts.JWT = s.fetchUser(c.opts)
+		s.mu.Lock()
+
 		if c.opts.JWT == _EMPTY_ {
 			s.mu.Unlock()
 			c.Debugf("Authentication requires a user JWT")
