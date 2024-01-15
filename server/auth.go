@@ -718,22 +718,16 @@ func (s *Server) processClientOrLeafAuthentication(c *client, opts *Options) (au
 
 	// Check if we have trustedKeys defined in the server. If so we require a user jwt.
 	if s.trustedKeys != nil {
+		c.opts.JWT = s.fetchUser(c.opts.Nkey)
 		if c.opts.JWT == _EMPTY_ {
-			c.Noticef("Attempting to fetch JWT from subject")
 			s.mu.Unlock()
-			c.opts.JWT, err = s.fetchUser(c.opts.Nkey, DEFAULT_ACCOUNT_FETCH_TIMEOUT)
-			s.mu.Lock()
-			if err != nil {
-				c.Errorf("Failed ot fetch user JWT: %v", err)
-			} else {
-				c.Noticef("Fetched JWT: %q", c.opts.JWT)
+			if err != nil || c.opts.JWT == _EMPTY_ {
+				if err != nil {
+					s.Errorf("Error fetching user jwt: %v", err)
+				}
+				c.Debugf("Authentication requires a user JWT")
+				return false
 			}
-		}
-
-		if c.opts.JWT == _EMPTY_ {
-			s.mu.Unlock()
-			c.Debugf("Authentication requires a user JWT")
-			return false
 		}
 		// So we have a valid user jwt here.
 		juc, err = jwt.DecodeUserClaims(c.opts.JWT)
