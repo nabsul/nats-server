@@ -1,8 +1,11 @@
 name: Build Nabeel Blog
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Docker Image Tag"
+        type: string
+        required: true
 
 jobs:
   build-and-push-image:
