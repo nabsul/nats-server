@@ -1,4 +1,4 @@
-FROM golang:1.23-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 
 WORKDIR /go/src/app
@@ -9,7 +9,7 @@ RUN go mod download
 COPY . .
 RUN go build -o /go/bin/app
 
-FROM alpine:3.19
+FROM alpine:3.22
 
 COPY --from=builder /go/bin/app /bin/nats-server
 
